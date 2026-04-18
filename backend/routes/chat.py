@@ -1,80 +1,35 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
+import os
 
-from backend.services.llm import call_gemini
+from services.llm import answer_contract_question
 
 router = APIRouter()
 
 
-# =========================
-# REQUEST MODEL
-# =========================
 class ChatRequest(BaseModel):
     question: str
-    context: str  # full contract or selected clause text
-    gemini_key: Optional[str] = None
+    context: str
+    gemini_key: Optional[str] = None  # optional override from frontend
 
 
-# =========================
-# CHAT ENDPOINT
-# =========================
 @router.post("/chat")
 def chat_with_contract(req: ChatRequest):
-
     if not req.question or not req.context:
-        raise HTTPException(
-            status_code=400,
-            detail="Both question and context are required"
-        )
+        raise HTTPException(status_code=400, detail="Both question and context are required")
 
-    prompt = f"""
-You are ACTA AI, a senior clinical trial legal expert.
+    # BUG FIX: Was receiving empty key from frontend — now falls back to env var
+    api_key = req.gemini_key or os.getenv("GEMINI_API_KEY", "")
 
-Your job is to help users understand and negotiate clinical trial agreements.
-
-You MUST:
-- Give legally accurate explanations
-- Identify risks clearly
-- Suggest improvements when relevant
-- Be concise but precise
-- If unsure, clearly say so
-
-----------------------------
-CONTRACT CONTEXT:
-----------------------------
-{req.context}
-
-----------------------------
-USER QUESTION:
-----------------------------
-{req.question}
-
-----------------------------
-OUTPUT FORMAT:
-- Direct answer first
-- Then risk explanation (if any)
-- Then negotiation suggestion (if relevant)
-"""
+    if not api_key:
+        return {
+            "answer": "⚠️ Gemini API key not configured. Set GEMINI_API_KEY in your .env file.",
+            "status": "error"
+        }
 
     try:
-        # Use frontend-provided key OR fallback (if you later add env key)
-        api_key = req.gemini_key or ""
-
-        response = call_gemini(api_key, prompt)
-
-        if not response:
-            return {
-                "answer": "⚠️ AI could not generate a response. Please try again."
-            }
-
-        return {
-            "answer": response,
-            "status": "success"
-        }
-
+        response = answer_contract_question(api_key, req.question, req.context)
+        return {"answer": response, "status": "success"}
     except Exception as e:
-        return {
-            "answer": "❌ Error generating response",
-            "error": str(e)
-        }
+        return {"answer": f"❌ Error: {str(e)}", "status": "error"}

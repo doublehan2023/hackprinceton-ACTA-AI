@@ -19,10 +19,12 @@ K2 (Legal Reasoning Model)  →  Heavy legal analysis:
 ─────────────────────────────────────────────────────────────────
 """
 
+from flask.cli import load_dotenv
 import requests
 import json
 import os
 
+load_dotenv() 
 GEMINI_MODEL = "gemini-2.0-flash"
 K2_API_BASE = "https://api.k2.ai/v1"   # update to real K2 endpoint when confirmed
 
@@ -35,8 +37,8 @@ K2_KEY = os.getenv("K2_API_KEY", "")
 # GEMINI — CORE CALL
 # USE FOR: classification, summarization, chat, fast analysis
 # ══════════════════════════════════════════════════════════════
-def call_gemini(api_key: str, prompt: str, temperature: float = 0.2) -> str | None:
-    key = api_key or GEMINI_KEY
+def call_gemini(GEMINI_API_KEY: str, prompt: str, temperature: float = 0.2) -> str | None:
+    key = GEMINI_API_KEY or GEMINI_KEY
     if not key:
         print("⚠️  No Gemini API key provided")
         return None
@@ -115,7 +117,7 @@ LEGAL_HEAVY_TYPES = {
     "Governing Law",
 }
 
-def route_llm(clause_type: str, prompt: str, api_key: str = "") -> tuple[str | None, str]:
+def route_llm(clause_type: str, prompt: str, GEMINI_API_KEY: str = "") -> tuple[str | None, str]:
     """
     Returns (response_text, model_used)
     Routes to K2 for legal-heavy clauses, Gemini otherwise.
@@ -134,7 +136,7 @@ def route_llm(clause_type: str, prompt: str, api_key: str = "") -> tuple[str | N
 
         print(f"⚠️  K2 failed for {clause_type} — falling back to Gemini")
 
-    result = call_gemini(api_key, prompt)
+    result = call_gemini(GEMINI_API_KEY, prompt)
     return result, "Gemini"
 
 
@@ -157,7 +159,7 @@ def safe_parse_json(text: str) -> dict | None:
 # USES: Gemini (fast, cheap — just categorizing text)
 # Called by: clause_splitter.py
 # ══════════════════════════════════════════════════════════════
-def classify_clause_with_gemini(api_key: str, clause_text: str) -> str:
+def classify_clause_with_gemini(GEMINI_API_KEY: str, clause_text: str) -> str:
     """
     Uses Gemini to classify raw clause text into ACTA categories.
     Returns one of: Confidentiality | Indemnification | Payment Terms |
@@ -181,7 +183,7 @@ Return ONLY the category name. No explanation.
 CLAUSE:
 {clause_text[:800]}
 """
-    result = call_gemini(api_key, prompt, temperature=0.0)
+    result = call_gemini(GEMINI_API_KEY, prompt, temperature=0.0)
     if result:
         result = result.strip()
         valid = {"Confidentiality", "Indemnification", "Payment Terms",
@@ -234,14 +236,14 @@ deviation rules:
 """
 
 
-def analyze_clause_with_ai(api_key: str, clause_name: str, clause_text: str, clause_type: str = "General Clause") -> dict:
+def analyze_clause_with_ai(GEMINI_API_KEY: str, clause_name: str, clause_text: str, clause_type: str = "General Clause") -> dict:
     """
     Main analysis function. Routes to K2 or Gemini based on clause type.
     Returns structured dict with deviation, risk_reason, suggested_clause, confidence, model_used.
     """
     prompt = build_acta_prompt(clause_name, clause_type, clause_text)
 
-    response, model_used = route_llm(clause_type, prompt, api_key)
+    response, model_used = route_llm(clause_type, prompt, GEMINI_API_KEY)
 
     parsed = safe_parse_json(response)
 
@@ -264,7 +266,7 @@ def analyze_clause_with_ai(api_key: str, clause_name: str, clause_text: str, cla
 # USES: Gemini (summarization — this is Gemini's strength)
 # Called by: analyze.py after all clauses processed
 # ══════════════════════════════════════════════════════════════
-def generate_executive_summary(api_key: str, metrics: dict, critical_clauses: list[str]) -> str:
+def generate_executive_summary(GEMINI_API_KEY: str, metrics: dict, critical_clauses: list[str]) -> str:
     """
     Uses Gemini to generate a human-readable executive summary
     of the full contract analysis for the dashboard.
@@ -286,7 +288,7 @@ Write a 3-sentence executive summary for a clinical trial manager (non-lawyer).
 - Sentence 3: Clear recommendation
 Be direct. No jargon. No bullet points.
 """
-    result = call_gemini(api_key, prompt, temperature=0.3)
+    result = call_gemini(GEMINI_API_KEY, prompt, temperature=0.3)
     return result or metrics.get("recommendation", "Analysis complete.")
 
 
@@ -295,7 +297,7 @@ Be direct. No jargon. No bullet points.
 # USES: Gemini (conversational — fast responses)
 # Called by: chat.py route
 # ══════════════════════════════════════════════════════════════
-def answer_contract_question(api_key: str, question: str, context: str) -> str:
+def answer_contract_question(GEMINI_API_KEY: str, question: str, context: str) -> str:
     """
     Uses Gemini for interactive Q&A about the contract.
     Context = full contract text or selected clause.
@@ -323,5 +325,5 @@ FORMAT:
 - Risk or ACTA deviation explanation (if applicable)
 - Negotiation suggestion (if applicable)
 """
-    result = call_gemini(api_key, prompt, temperature=0.3)
+    result = call_gemini(GEMINI_API_KEY, prompt, temperature=0.3)
     return result or "Unable to generate a response. Please try again."

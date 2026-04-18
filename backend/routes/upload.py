@@ -1,9 +1,8 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import os
 
-from backend.services.file_parser import extract_text
-from backend.routes.analyze import analyze_cta, CTARequest
-
+from routes.analyze import analyze_cta, CTARequest
+from services.file_parser import extract_text
 router = APIRouter()
 
 UPLOAD_DIR = "uploads"

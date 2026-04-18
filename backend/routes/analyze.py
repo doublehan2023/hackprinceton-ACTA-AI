@@ -2,9 +2,9 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 
-from backend.services.clause_splitter import split_into_clauses
-from backend.services.redline import generate_redlines
-from backend.services.llm import (
+from services.clause_splitter import split_into_clauses
+from services.redline import generate_redlines
+from services.llm import (
     analyze_clause_with_ai,
     classify_clause_with_gemini,
     generate_executive_summary
@@ -16,7 +16,7 @@ router = APIRouter()
 class CTARequest(BaseModel):
     filename: str
     text: str
-    gemini_key: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
 
 
 @router.post("/analyze")
@@ -42,13 +42,13 @@ def analyze_cta(req: CTARequest):
         clause_text = clause.get("text", "") if isinstance(clause, dict) else str(clause)
 
         # Gemini classifies the clause type first (fast + cheap)
-        clause_type = classify_clause_with_gemini(req.gemini_key, clause_text)
+        clause_type = classify_clause_with_gemini(req.GEMINI_API_KEY, clause_text)
 
         clause_key = f"{clause_type} #{i+1}"
 
         # Router picks K2 or Gemini based on clause_type
         ai_result = analyze_clause_with_ai(
-            req.gemini_key,
+            req.GEMINI_API_KEY,
             clause_key,
             clause_text,
             clause_type=clause_type
@@ -88,7 +88,7 @@ def analyze_cta(req: CTARequest):
 
     # ── STEP 4: Executive summary via Gemini ─────────────────────────
     critical_types = [v["type"] for v in analyzed.values() if v["deviation"] == "critical"]
-    summary = generate_executive_summary(req.gemini_key, metrics, critical_types)
+    summary = generate_executive_summary(req.GEMINI_API_KEY, metrics, critical_types)
 
     # ── STEP 5: Generate redlines ────────────────────────────────────
     redlines = generate_redlines(analyzed)
