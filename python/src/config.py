@@ -33,11 +33,26 @@ class Settings(BaseModel):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     load_dotenv(ENV_FILE)
+    k2_api_key = os.getenv("K2_API_KEY", "")
+    using_k2 = bool(k2_api_key)
+
     return Settings(
         app_env=os.getenv("APP_ENV", "development"),
-        llm_api_key=os.getenv("OPENAI_API_KEY", os.getenv("LLM_API_KEY", "")),
-        llm_model=os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini")),
-        llm_base_url=os.getenv("OPENAI_BASE_URL", os.getenv("LLM_BASE_URL")),
+        llm_api_key=(
+            k2_api_key
+            if using_k2
+            else os.getenv("OPENAI_API_KEY", os.getenv("LLM_API_KEY", ""))
+        ),
+        llm_model=(
+            os.getenv("K2_MODEL", os.getenv("LLM_MODEL", "MBZUAI-IFM/K2-Think-v2"))
+            if using_k2
+            else os.getenv("OPENAI_MODEL", os.getenv("LLM_MODEL", "gpt-4o-mini"))
+        ),
+        llm_base_url=(
+            os.getenv("K2_BASE_URL", "https://api.k2think.ai/v1")
+            if using_k2
+            else os.getenv("OPENAI_BASE_URL", os.getenv("LLM_BASE_URL"))
+        ),
     )
 
 

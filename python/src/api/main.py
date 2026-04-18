@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
@@ -8,10 +9,16 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from src.config import get_settings
+from src.config import get_llm, get_settings
 from src.parsers.document_parser import parse_document, parse_text
 from src.pipeline.graph import create_review_pipeline
 from src.pipeline.state import ContractReviewState, RiskLevel
+
+try:
+    from langchain_core.messages import HumanMessage, SystemMessage
+except ImportError:  # pragma: no cover - optional dependency in local test env
+    HumanMessage = None
+    SystemMessage = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -24,6 +31,15 @@ class ReviewRequest(BaseModel):
     text: str = Field(min_length=1)
     title: str = "Contract Review"
     with_human_review: bool = False
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(min_length=1)
+    context: str = ""
+
+
+class ChatResponse(BaseModel):
+    answer: str
 
 
 class AssessmentPayload(BaseModel):
@@ -71,6 +87,76 @@ async def health() -> dict[str, str]:
 @app.get("/api/v1/health")
 async def versioned_health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _truncate_context(context: str, max_chars: int = 12000) -> str:
+    context = context.strip()
+    if len(context) <= max_chars:
+        return context
+    return context[:max_chars].rstrip() + "\n\n[TRUNCATED]"
+
+
+def _fallback_chat_answer(question: str, context: str) -> str:
+    cleaned_context = context.strip()
+    if cleaned_context:
+        return (
+            "I could not reach the configured language model, so here is a context-grounded fallback.\n\n"
+            f"Question: {question.strip()}\n\n"
+            "The uploaded contract context is available, but advanced Q&A is currently offline. "
+            "Please check that `OPENAI_API_KEY` is set for the Python service and try again."
+        )
+    return (
+        "I could not reach the configured language model, and no contract context was provided. "
+        "Please upload or analyze a contract first, then ask your question again."
+    )
+
+
+def _build_chat_messages(question: str, context: str) -> list[object]:
+    system_prompt = (
+        "You are a precise legal contract analysis assistant for clinical trial agreements. "
+        "Answer the user's question using the supplied contract context when available. "
+        "If the context is insufficient, say so clearly instead of inventing details. "
+        "Keep answers concise, practical, and focused on the contract text."
+    )
+    user_prompt = (
+        f"Question:\n{question.strip()}\n\n"
+        f"Contract context:\n{_truncate_context(context) if context.strip() else '[No contract context provided]'}"
+    )
+
+    if HumanMessage is not None and SystemMessage is not None:
+        return [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt),
+        ]
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _coerce_chat_content(content: object) -> str:
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict):
+                parts.append(str(part.get("text", "")))
+            else:
+                text = getattr(part, "text", None)
+                parts.append(str(text if text is not None else part))
+        return "".join(parts).strip()
+    if isinstance(content, str):
+        text = content.strip()
+    else:
+        text = str(content).strip()
+
+    # K2 Think responses may include hidden reasoning in <think> blocks, and
+    # some payloads may only expose the trailing closing marker.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+    if "</think>" in text.lower():
+        parts = re.split(r"</think>", text, flags=re.IGNORECASE, maxsplit=1)
+        text = parts[-1].strip()
+    return text
 
 
 def _build_state(payload: AnalyzeRequest) -> ContractReviewState:
@@ -156,6 +242,24 @@ async def create_review(request: ReviewRequest) -> AnalyzeResponse:
     )
     result = await pipeline.ainvoke(state)
     return _normalize_response(ContractReviewState.model_validate(result))
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    llm = get_llm()
+    if llm is None:
+        return ChatResponse(answer=_fallback_chat_answer(request.question, request.context))
+
+    try:
+        response = llm.invoke(_build_chat_messages(request.question, request.context))
+        answer = _coerce_chat_content(getattr(response, "content", response))
+    except Exception:
+        answer = _fallback_chat_answer(request.question, request.context)
+
+    if not answer:
+        answer = _fallback_chat_answer(request.question, request.context)
+
+    return ChatResponse(answer=answer)
 
 
 if __name__ == "__main__":
