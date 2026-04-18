@@ -28,6 +28,14 @@ interface Conflict {
   recommendation: string;
 }
 
+interface AnthropicResponseBlock {
+  text?: string;
+}
+
+interface AnthropicResponse {
+  content?: AnthropicResponseBlock[];
+}
+
 const CONFLICT_ICONS: Record<string, string> = {
   exclusive_ip: "🔒",
   jurisdiction: "⚖️",
@@ -87,8 +95,8 @@ If no conflicts found, return empty array [].`;
       }),
     });
 
-    const data = await response.json();
-    const text = data.content?.map((b: any) => b.text || "").join("") || "[]";
+    const data = (await response.json()) as AnthropicResponse;
+    const text = data.content?.map((block) => block.text || "").join("") || "[]";
     const clean = text.replace(/```json|```/g, "").trim();
     return JSON.parse(clean);
   } catch {

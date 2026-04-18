@@ -1,19 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { analyzeCTA } from "@/lib/api";
+import { analyzeCTA, FrontendAnalyzeResult } from "@/lib/api";
 
 export default function UploadZone() {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<FrontendAnalyzeResult | null>(null);
 
   const handleFile = async (file: File) => {
     setLoading(true);
 
-    const text = await file.text(); // works for .txt files first
-
     try {
-      const res = await analyzeCTA(text, file.name);
+      const res = await analyzeCTA(file);
       setResult(res);
     } catch (err) {
       console.error(err);

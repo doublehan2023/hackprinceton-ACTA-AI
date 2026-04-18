@@ -16,6 +16,14 @@ interface Props {
   redlines: Record<string, Clause>;
 }
 
+interface AnthropicResponseBlock {
+  text?: string;
+}
+
+interface AnthropicResponse {
+  content?: AnthropicResponseBlock[];
+}
+
 // ─────────────────────────────────────────────
 // CONFIDENCE TRAFFIC LIGHT
 // ⚫ unknown  🔴 critical  🟡 minor  🟢 aligned
@@ -85,8 +93,8 @@ Return ONLY valid JSON, no markdown, no explanation.`;
     }),
   });
 
-  const data = await response.json();
-  const text = data.content?.map((b: any) => b.text || "").join("") || "";
+  const data = (await response.json()) as AnthropicResponse;
+  const text = data.content?.map((block) => block.text || "").join("") || "";
   try {
     const clean = text.replace(/```json|```/g, "").trim();
     return JSON.parse(clean);

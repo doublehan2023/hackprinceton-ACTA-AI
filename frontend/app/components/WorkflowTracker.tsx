@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface Props {
   filename: string;
@@ -50,7 +50,7 @@ interface StageEstimate {
   bottleneckReason?: string;
 }
 
-function buildForecast(critical: number, minor: number, currentStage: Stage): StageEstimate[] {
+function buildForecast(critical: number, minor: number): StageEstimate[] {
   const stages: StageEstimate[] = [
     {
       stage: "draft",
@@ -141,7 +141,7 @@ export default function WorkflowTracker({ filename, metrics }: Props) {
   };
 
   const stageIdx = STAGE_ORDER.indexOf(currentStage);
-  const forecast = buildForecast(metrics.critical, metrics.minor, currentStage);
+  const forecast = buildForecast(metrics.critical, metrics.minor);
   const totalEstimated = forecast.reduce((sum, s) => sum + s.estimatedDays, 0);
   const totalBaseline = forecast.reduce((sum, s) => sum + s.baseDays, 0);
   const daysSaved = 100 - totalEstimated; // vs industry avg 100 days
@@ -149,11 +149,6 @@ export default function WorkflowTracker({ filename, metrics }: Props) {
   const bottleneckStages = forecast.filter(s => s.bottleneck);
 
   // Which 3 clauses are causing the most delay
-  const npvUnlocked = Math.max(0, daysSaved) * 800000;
-
-  const daysEstimated = metrics.critical >= 3 ? 90 : metrics.critical >= 1 ? 55 : 30;
-  const daysSavedLegacy = metrics.critical === 0 ? 50 : metrics.critical <= 2 ? 32 : 15;
-
   return (
     <div>
       <style>{`

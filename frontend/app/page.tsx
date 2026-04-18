@@ -7,6 +7,7 @@ import WorkflowTracker from "@/app/components/WorkflowTracker";
 import SitePersona from "@/app/components/SitePersona";
 import ConflictDetector from "@/app/components/ConflictDetector";
 import jsPDF from "jspdf";
+import { analyzeCTA, FrontendAnalyzeResult } from "@/lib/api";
 
 // 5 tabs now: redlines | chat | workflow | personas | conflicts
 type Tab = "redlines" | "chat" | "workflow" | "personas" | "conflicts";
@@ -14,7 +15,7 @@ type Tab = "redlines" | "chat" | "workflow" | "personas" | "conflicts";
 export default function HomePage() {
   const [file, setFile] = useState<File | null>(null);
   const [contractText, setContractText] = useState<string>("");
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<FrontendAnalyzeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("redlines");
@@ -34,38 +35,14 @@ export default function HomePage() {
     setResult(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const uploadRes = await fetch("http://127.0.0.1:8000/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!uploadRes.ok) throw new Error(await uploadRes.text());
-      const uploadData = await uploadRes.json();
-
-      let text = uploadData.text_preview || "";
-      if (file.name.endsWith(".txt") && !text) {
-        text = await file.text();
-      }
+      const text = await file.text().catch(() => "");
       setContractText(text);
 
-      const analyzeRes = await fetch("http://127.0.0.1:8000/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: uploadData?.filename || file.name,
-          text: uploadData.text_preview || text,
-        }),
-      });
-
-      if (!analyzeRes.ok) throw new Error(await analyzeRes.text());
-      const analyzeData = await analyzeRes.json();
+      const analyzeData = await analyzeCTA(file);
       setResult(analyzeData);
       setActiveTab("redlines");
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }

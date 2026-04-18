@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import RedlineViewer from "@/app/components/RedlineViewer";
+import { analyzeCTA, FrontendAnalyzeResult } from "@/lib/api";
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<FrontendAnalyzeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,52 +18,11 @@ export default function UploadPage() {
     setResult(null);
 
     try {
-      // =========================
-      // STEP 1: Upload file to backend
-      // =========================
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const uploadRes = await fetch("http://127.0.0.1:8000/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!uploadRes.ok) {
-        throw new Error(await uploadRes.text());
-      }
-
-      const uploadData = await uploadRes.json();
-
-      // =========================
-      // STEP 2: Extract text (temporary frontend parsing)
-      // =========================
-      const text = await file.text();
-
-      // =========================
-      // STEP 3: Send for AI analysis
-      // =========================
-      const analyzeRes = await fetch("http://127.0.0.1:8000/api/analyze", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          filename: uploadData.filename || file.name,
-          text: text,
-        }),
-      });
-
-      if (!analyzeRes.ok) {
-        throw new Error(await analyzeRes.text());
-      }
-
-      const analyzeData = await analyzeRes.json();
-
+      const analyzeData = await analyzeCTA(file);
       setResult(analyzeData);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Upload/Analyze error:", err);
-      setError(err.message || "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -71,12 +31,8 @@ export default function UploadPage() {
   // =========================
   // WINNING FEATURE: RISK SCORE
   // =========================
-  const riskScore =
-    result?.metrics?.critical >= 3
-      ? 90
-      : result?.metrics?.critical >= 1
-      ? 70
-      : 30;
+  const criticalCount = result?.metrics.critical ?? 0;
+  const riskScore = criticalCount >= 3 ? 90 : criticalCount >= 1 ? 70 : 30;
 
   return (
     <div style={{ padding: 40, maxWidth: 900, margin: "0 auto" }}>

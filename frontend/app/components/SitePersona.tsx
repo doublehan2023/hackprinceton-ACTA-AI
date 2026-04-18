@@ -377,7 +377,7 @@ export default function SitePersona({ clauses }: Props) {
       <div className="persona-header">
         <div className="persona-header-title">🎯 Predictive Site Negotiation Intelligence</div>
         <div className="persona-header-sub">
-          Select the site type you're negotiating with — AI predicts which clauses will cause friction before you send.
+          Select the site type you&apos;re negotiating with — AI predicts which clauses will cause friction before you send.
         </div>
       </div>
 
