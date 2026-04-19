@@ -31,6 +31,16 @@ class Settings(BaseModel):
     suggested_notice_days: int = 30
 
 
+class LLMRuntime(BaseModel):
+    provider_name: str = "openai"
+    provider_type: str = "openai_compatible"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    base_url: str | None = None
+    enabled: bool = False
+    disabled_reason: str = ""
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     load_dotenv(ENV_FILE)
@@ -58,17 +68,42 @@ def get_settings() -> Settings:
     )
 
 
-def get_llm() -> ChatOpenAI | None:
+@lru_cache(maxsize=1)
+def get_llm_runtime() -> LLMRuntime:
     settings = get_settings()
-    if not settings.llm_api_key or ChatOpenAI is None:
+    provider_name = "k2" if settings.llm_provider == "k2" else "openai"
+    runtime = LLMRuntime(
+        provider_name=provider_name,
+        api_key=settings.llm_api_key,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
+
+    if ChatOpenAI is None:
+        runtime.enabled = False
+        runtime.disabled_reason = "langchain-openai is not installed."
+        return runtime
+
+    if not settings.llm_api_key:
+        runtime.enabled = False
+        runtime.disabled_reason = "No API key configured for the Python service."
+        return runtime
+
+    runtime.enabled = True
+    return runtime
+
+
+def get_llm() -> ChatOpenAI | None:
+    runtime = get_llm_runtime()
+    if not runtime.enabled or ChatOpenAI is None:
         return None
 
     kwargs: dict[str, object] = {
-        "model": settings.llm_model,
-        "api_key": settings.llm_api_key,
+        "model": runtime.model,
+        "api_key": runtime.api_key,
         "temperature": 0,
     }
-    if settings.llm_base_url:
-        kwargs["base_url"] = settings.llm_base_url
+    if runtime.base_url:
+        kwargs["base_url"] = runtime.base_url
 
     return ChatOpenAI(**kwargs)

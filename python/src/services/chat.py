@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-import re
-
 from src.api.schemas import ChatResponse
-from src.config import get_llm
-
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage
-except ImportError:  # pragma: no cover - optional dependency in local test env
-    HumanMessage = None
-    SystemMessage = None
+from src.llm import build_messages, coerce_response_text, get_llm_client, truncate_text
 
 
 def truncate_context(context: str, max_chars: int = 12000) -> str:
-    context = context.strip()
-    if len(context) <= max_chars:
-        return context
-    return context[:max_chars].rstrip() + "\n\n[TRUNCATED]"
+    return truncate_text(context, max_chars)
 
 
 def fallback_chat_answer(question: str, context: str) -> str:
@@ -46,42 +35,15 @@ def build_chat_messages(question: str, context: str) -> list[object]:
         f"Contract context:\n{truncate_context(context) if context.strip() else '[No contract context provided]'}"
     )
 
-    if HumanMessage is not None and SystemMessage is not None:
-        return [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=user_prompt),
-        ]
-
-    return [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    return build_messages(system_prompt, user_prompt)
 
 
 def coerce_chat_content(content: object) -> str:
-    if isinstance(content, list):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, dict):
-                parts.append(str(part.get("text", "")))
-            else:
-                text = getattr(part, "text", None)
-                parts.append(str(text if text is not None else part))
-        return "".join(parts).strip()
-    if isinstance(content, str):
-        text = content.strip()
-    else:
-        text = str(content).strip()
-
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-    if "</think>" in text.lower():
-        parts = re.split(r"</think>", text, flags=re.IGNORECASE, maxsplit=1)
-        text = parts[-1].strip()
-    return text
+    return coerce_response_text(content)
 
 
 def answer_chat(question: str, context: str, *, llm: object | None = None) -> ChatResponse:
-    client = get_llm() if llm is None else llm
+    client = get_llm_client()[0] if llm is None else llm
     if client is None:
         return ChatResponse(answer=fallback_chat_answer(question, context))
 

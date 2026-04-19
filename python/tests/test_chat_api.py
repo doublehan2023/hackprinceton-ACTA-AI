@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import asyncio
 
+from src.config import LLMRuntime
 from src.api.main import ChatRequest, chat
 
 
 def test_chat_endpoint_returns_fallback_without_llm(monkeypatch) -> None:
-    monkeypatch.setattr("src.services.chat.get_llm", lambda: None)
+    monkeypatch.setattr(
+        "src.services.chat.get_llm_client",
+        lambda: (
+            None,
+            LLMRuntime(enabled=False, disabled_reason="No API key configured for the Python service."),
+        ),
+    )
 
     response = asyncio.run(
         chat(
@@ -29,7 +36,13 @@ def test_chat_endpoint_returns_llm_response(monkeypatch) -> None:
             assert len(messages) == 2
             return FakeLLMResponse()
 
-    monkeypatch.setattr("src.services.chat.get_llm", lambda: FakeLLM())
+    monkeypatch.setattr(
+        "src.services.chat.get_llm_client",
+        lambda: (
+            FakeLLM(),
+            LLMRuntime(provider_name="openai", enabled=True),
+        ),
+    )
 
     response = asyncio.run(
         chat(

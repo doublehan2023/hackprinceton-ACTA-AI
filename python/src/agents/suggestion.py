@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import difflib
-import json
 import logging
-import re
 from collections import Counter
 
-from src.config import get_llm
+from src.llm import build_messages, get_llm_client, parse_json_response
 from src.pipeline.state import (
     ClauseType,
     ComplianceFinding,
@@ -18,12 +16,6 @@ from src.pipeline.state import (
 from src.rules.engine import PLAYBOOK, build_suggestion_for_finding
 
 logger = logging.getLogger(__name__)
-
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage
-except ImportError:  # pragma: no cover - optional dependency in local test env
-    HumanMessage = None
-    SystemMessage = None
 
 
 SYSTEM_PROMPT = """You are a senior contract redlining advisor for clinical trial agreements.
@@ -63,7 +55,7 @@ class SuggestionAgent:
 
     def _ensure_llm(self) -> None:
         if self.llm is None:
-            self.llm = get_llm()
+            self.llm = get_llm_client()[0]
 
     def __call__(self, state: ContractReviewState) -> dict[str, object]:
         logger.info("Starting suggestion generation for review_id=%s", state.review_id)
@@ -119,20 +111,9 @@ class SuggestionAgent:
 
         user_prompt = "Generate clause revision suggestions for these findings:\n\n" + "\n\n---\n\n".join(context_parts)
 
-        if HumanMessage is not None and SystemMessage is not None:
-            messages = [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=user_prompt),
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ]
-
+        messages = build_messages(SYSTEM_PROMPT, user_prompt)
         response = self.llm.invoke(messages)
-        content = self._clean_response_content(getattr(response, "content", response))
-        payload = json.loads(content)
+        payload = parse_json_response(response)
 
         suggestions: list[Suggestion] = []
         findings_by_id = {finding.clause_id: finding for finding in risk_findings}
@@ -344,20 +325,6 @@ class SuggestionAgent:
             f"Detected {counts[RiskLevel.RED]} critical, {counts[RiskLevel.YELLOW]} minor, "
             f"and {counts[RiskLevel.GREEN]} aligned clauses."
         )
-
-    def _clean_response_content(self, content: object) -> str:
-        if isinstance(content, list):
-            text = "".join(
-                str(part.get("text", "")) if isinstance(part, dict) else str(getattr(part, "text", part))
-                for part in content
-            )
-        else:
-            text = str(content)
-
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-        return text.strip()
 
     def _normalize_priority(self, value: object) -> str:
         priority = str(value or "medium").strip().lower()

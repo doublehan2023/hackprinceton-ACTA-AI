@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import HTTPException
 
 from src.api.schemas import (
     ActaRewriteRequest,
@@ -11,6 +14,8 @@ from src.api.schemas import (
     ChatResponse,
     ReviewRequest,
 )
+from src.config import get_settings
+from src.parsers.document_parser import parse_document
 from src.services.chat import answer_chat
 from src.services.review import run_inline_review, run_uploaded_contract_review
 from src.services.rewrite import rewrite_to_acta
@@ -27,6 +32,32 @@ async def health() -> dict[str, str]:
 @router.get("/api/v1/health")
 async def versioned_health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.post("/api/upload")
+async def upload_contract(file: UploadFile = File(...)) -> dict[str, str | int]:
+    settings = get_settings()
+    settings.upload_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = Path(file.filename or "uploaded.txt").name
+    file_path = settings.upload_dir / filename
+    file_path.write_bytes(await file.read())
+
+    try:
+        parsed = parse_document(str(file_path), filename)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"File parsing failed: {exc}") from exc
+
+    full_text = parsed.raw_text.strip()
+    if not full_text:
+        raise HTTPException(status_code=400, detail="The uploaded contract did not contain readable text.")
+
+    return {
+        "filename": filename,
+        "full_text": full_text,
+        "char_count": len(full_text),
+        "text_preview": full_text[:500],
+    }
 
 
 @router.post("/api/analyze", response_model=AnalyzeResponse)

@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 
-from src.config import get_llm, get_settings
+from src.config import get_settings
+from src.llm import build_messages, get_llm_client, parse_json_response, validate_llm_runtime
 from src.pipeline.state import Clause, ClauseType, ContractReviewState, RiskFinding, RiskLevel
 from src.rules.engine import ACTA_RISK_RULES, PLAYBOOK, evaluate_clause_risk
 
 logger = logging.getLogger(__name__)
-
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage
-except ImportError:  # pragma: no cover - optional dependency in local test env
-    HumanMessage = None
-    SystemMessage = None
 
 
 SYSTEM_PROMPT = """You are a legal risk reviewer for clinical trial agreements.
@@ -59,17 +53,18 @@ RISK_PRIORITY = {
 class RiskIdentificationAgent:
     def __init__(self) -> None:
         self.llm = None
-        self.analysis_model = "k2"
+        self.analysis_model = "rules"
 
     def _ensure_llm(self) -> None:
-        settings = get_settings()
-        self.analysis_model = settings.llm_provider
-        if settings.llm_provider != "k2":
-            raise RuntimeError("Risk identification requires K2. Set K2_API_KEY to enable K2 analysis.")
+        client, runtime = get_llm_client()
+        self.analysis_model = runtime.provider_name if runtime.enabled else "rules"
+        policy_error = validate_llm_runtime(runtime)
+        if policy_error is not None:
+            raise RuntimeError(policy_error)
         if self.llm is None:
-            self.llm = get_llm()
+            self.llm = client
         if self.llm is None:
-            raise RuntimeError("Risk identification requires K2, but the K2 client is unavailable.")
+            raise RuntimeError("LLM runtime is enabled, but the client could not be created.")
 
     def __call__(self, state: ContractReviewState) -> dict[str, object]:
         logger.info("Starting ACTA-based risk identification for review_id=%s", state.review_id)
@@ -211,20 +206,9 @@ class RiskIdentificationAgent:
         return "The counterparty may retain leverage because the clause is less protective than the ACTA baseline."
 
     def _llm_analysis(self, clauses: list[Clause]) -> list[RiskFinding]:
-        if HumanMessage is not None and SystemMessage is not None:
-            messages = [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=self._build_llm_prompt(clauses)),
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": self._build_llm_prompt(clauses)},
-            ]
-
+        messages = build_messages(SYSTEM_PROMPT, self._build_llm_prompt(clauses))
         response = self.llm.invoke(messages)
-        content = self._coerce_response_content(response)
-        payload = json.loads(self._strip_code_fences(content))
+        payload = parse_json_response(response)
 
         findings: list[RiskFinding] = []
         clause_lookup = {clause.id: clause for clause in clauses}
@@ -278,37 +262,6 @@ class RiskIdentificationAgent:
                 f"Clause Text: {clause.text}"
             )
         return "Review these clauses against their ACTA baselines:\n\n" + "\n\n".join(chunks)
-
-    def _coerce_response_content(self, response: object) -> str:
-        content = getattr(response, "content", response)
-        if isinstance(content, list):
-            parts: list[str] = []
-            for part in content:
-                if isinstance(part, dict):
-                    parts.append(str(part.get("text", "")))
-                else:
-                    text = getattr(part, "text", None)
-                    parts.append(str(text if text is not None else part))
-            content = "".join(parts)
-        elif not isinstance(content, str):
-            content = str(content)
-
-        text = content.strip()
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-        if "</think>" in text.lower():
-            parts = re.split(r"</think>", text, flags=re.IGNORECASE, maxsplit=1)
-            text = parts[-1].strip()
-        return text
-
-    def _strip_code_fences(self, content: str) -> str:
-        if content.startswith("```"):
-            lines = content.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            return "\n".join(lines).strip()
-        return content.strip()
 
     def _coerce_risk_level(self, value: object) -> RiskLevel:
         normalized = str(value).strip().lower()

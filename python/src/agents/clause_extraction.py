@@ -1,20 +1,13 @@
 from __future__ import annotations
 
-import json
 import logging
-import re
 
-from src.config import get_llm, get_settings
+from src.config import get_settings
+from src.llm import build_messages, get_llm_client, parse_json_response
 from src.nlp.legal_nlp import extract_clauses
 from src.pipeline.state import Clause, ClauseType, ContractReviewState, Section
 
 logger = logging.getLogger(__name__)
-
-try:
-    from langchain_core.messages import HumanMessage, SystemMessage
-except ImportError:  # pragma: no cover - optional dependency in local test env
-    HumanMessage = None
-    SystemMessage = None
 
 SYSTEM_PROMPT = """You are a legal contract clause extraction expert.
 
@@ -62,9 +55,8 @@ class ClauseExtractionAgent:
 
     def _ensure_llm(self) -> None:
         if self.llm is None:
-            settings = get_settings()
-            self.extraction_model = settings.llm_provider
-            self.llm = get_llm()
+            self.llm, runtime = get_llm_client()
+            self.extraction_model = runtime.provider_name if runtime.enabled else "rules"
 
     def __call__(self, state: ContractReviewState) -> dict[str, object]:
         source_text = state.raw_text.strip()
@@ -119,50 +111,12 @@ class ClauseExtractionAgent:
 
     def _extract_with_llm(self, raw_text: str, sections: list[Section]) -> dict[str, object]:
         prompt_text = self._prepare_text(raw_text, sections)
-        if HumanMessage is not None and SystemMessage is not None:
-            messages = [
-                SystemMessage(content=SYSTEM_PROMPT),
-                HumanMessage(content=f"Extract structured clauses from this contract:\n\n{prompt_text}"),
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Extract structured clauses from this contract:\n\n{prompt_text}"},
-            ]
+        messages = build_messages(
+            SYSTEM_PROMPT,
+            f"Extract structured clauses from this contract:\n\n{prompt_text}",
+        )
         response = self.llm.invoke(messages)
-        content = self._coerce_response_content(response)
-        return json.loads(self._strip_code_fences(content.strip()))
-
-    def _coerce_response_content(self, response: object) -> str:
-        content = getattr(response, "content", response)
-        if isinstance(content, list):
-            parts: list[str] = []
-            for part in content:
-                if isinstance(part, dict):
-                    parts.append(str(part.get("text", "")))
-                else:
-                    text = getattr(part, "text", None)
-                    parts.append(str(text if text is not None else part))
-            content = "".join(parts)
-        elif not isinstance(content, str):
-            content = str(content)
-
-        text = str(content).strip()
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-        if "</think>" in text.lower():
-            parts = re.split(r"</think>", text, flags=re.IGNORECASE, maxsplit=1)
-            text = parts[-1].strip()
-        return text
-
-    def _strip_code_fences(self, content: str) -> str:
-        if content.startswith("```"):
-            lines = content.splitlines()
-            if lines and lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines and lines[-1].startswith("```"):
-                lines = lines[:-1]
-            return "\n".join(lines).strip()
-        return content
+        return parse_json_response(response)
 
     def _parse_clauses(self, payload: dict[str, object], sections: list[Section]) -> list[Clause]:
         section_lookup = {section.source_order: section for section in sections}
