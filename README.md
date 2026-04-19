@@ -1,6 +1,6 @@
 # ACTA — AI Contract Analysis
 
-ACTA is an AI-powered contract review platform that automatically analyzes legal contracts to identify risks, extract key clauses, check compliance, and suggest improvements. It features a multi-agent LangGraph pipeline backed by OpenAI or K2 AI reasoning models, with a Next.js frontend and FastAPI backend.
+ACTA is an AI-powered contract review platform that automatically analyzes legal contracts to identify risks, extract key clauses, check compliance, and suggest improvements. It features a multi-agent LangGraph pipeline backed by Gemini or K2 AI reasoning models, with a Next.js frontend and FastAPI backend.
 
 ## Features
 
@@ -15,7 +15,7 @@ ACTA is an AI-powered contract review platform that automatically analyzes legal
 
 - Python 3.10+
 - Node.js 18+
-- An OpenAI API key **or** a K2 API key
+- An Gemini API key **or** a K2 API key
 
 ## Installation
 
@@ -36,8 +36,8 @@ Edit `.env` and fill in your API credentials:
 
 ```env
 # Use OpenAI (required if not using K2)
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini 2.5 Flash
 
 # Use K2 Think reasoning model (optional — takes priority over OpenAI if set)
 K2_API_KEY=your_k2_api_key_here
