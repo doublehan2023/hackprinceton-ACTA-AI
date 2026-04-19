@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from src.config import get_llm, get_settings
 from src.nlp.legal_nlp import extract_clauses
@@ -57,29 +58,45 @@ Rules:
 class ClauseExtractionAgent:
     def __init__(self) -> None:
         self.llm = None
+        self.extraction_model = "llm"
 
     def _ensure_llm(self) -> None:
         if self.llm is None:
+            settings = get_settings()
+            self.extraction_model = settings.llm_provider
             self.llm = get_llm()
 
     def __call__(self, state: ContractReviewState) -> dict[str, object]:
         source_text = state.raw_text.strip()
         if not source_text:
-            return {"clauses": []}
+            return {"clauses": [], "extraction_model": state.extraction_model}
 
         self._ensure_llm()
         if self.llm is None:
-            logger.info("No LLM configured for clause extraction; using rules fallback.")
+            logger.info(
+                "No %s configured for clause extraction; using rules fallback.",
+                self.extraction_model,
+            )
             return self._fallback_result(state)
 
         try:
             payload = self._extract_with_llm(source_text, state.sections)
             clauses = self._parse_clauses(payload, state.sections)
             if clauses:
-                return {"clauses": clauses}
-            logger.warning("LLM clause extraction returned no clauses; using rules fallback.")
+                return {
+                    "clauses": clauses,
+                    "extraction_model": self.extraction_model,
+                }
+            logger.warning(
+                "%s clause extraction returned no clauses; using rules fallback.",
+                self.extraction_model.upper(),
+            )
         except Exception as exc:  # pragma: no cover - exercised by integration behavior
-            logger.warning("LLM clause extraction failed; using rules fallback: %s", exc)
+            logger.warning(
+                "%s clause extraction failed; using rules fallback: %s",
+                self.extraction_model.upper(),
+                exc,
+            )
 
         return self._fallback_result(state)
 
@@ -113,15 +130,29 @@ class ClauseExtractionAgent:
                 {"role": "user", "content": f"Extract structured clauses from this contract:\n\n{prompt_text}"},
             ]
         response = self.llm.invoke(messages)
-        content = response.content
-        if isinstance(content, list):
-            content = "".join(
-                part.get("text", "") if isinstance(part, dict) else str(part)
-                for part in content
-            )
-        if not isinstance(content, str):
-            content = str(content)
+        content = self._coerce_response_content(response)
         return json.loads(self._strip_code_fences(content.strip()))
+
+    def _coerce_response_content(self, response: object) -> str:
+        content = getattr(response, "content", response)
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, dict):
+                    parts.append(str(part.get("text", "")))
+                else:
+                    text = getattr(part, "text", None)
+                    parts.append(str(text if text is not None else part))
+            content = "".join(parts)
+        elif not isinstance(content, str):
+            content = str(content)
+
+        text = str(content).strip()
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+        if "</think>" in text.lower():
+            parts = re.split(r"</think>", text, flags=re.IGNORECASE, maxsplit=1)
+            text = parts[-1].strip()
+        return text
 
     def _strip_code_fences(self, content: str) -> str:
         if content.startswith("```"):
@@ -214,5 +245,6 @@ class ClauseExtractionAgent:
                 state.raw_text,
                 max_clauses=get_settings().analysis_max_clauses,
                 sections=state.sections,
-            )
+            ),
+            "extraction_model": "rules",
         }

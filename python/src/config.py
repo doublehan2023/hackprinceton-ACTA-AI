@@ -25,6 +25,7 @@ class Settings(BaseModel):
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str | None = None
+    llm_provider: str = "llm"
     analysis_max_clauses: int = 25
     confidence_threshold: float = 0.7
     suggested_notice_days: int = 30
@@ -53,6 +54,7 @@ def get_settings() -> Settings:
             if using_k2
             else os.getenv("OPENAI_BASE_URL", os.getenv("LLM_BASE_URL"))
         ),
+        llm_provider="k2" if using_k2 else "llm",
     )
 
 

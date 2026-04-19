@@ -71,7 +71,45 @@ def test_clause_extraction_agent_can_use_llm_response() -> None:
     result = agent(state)
 
     assert len(result["clauses"]) == 2
+    assert result["extraction_model"] == "llm"
     assert result["clauses"][0].clause_type is ClauseType.CONFIDENTIALITY
     assert result["clauses"][1].clause_type is ClauseType.PAYMENT_TERMS
     assert result["clauses"][0].section_order == 1
     assert result["clauses"][1].section_order == 2
+
+
+def test_clause_extraction_agent_strips_k2_think_blocks() -> None:
+    parsed = parse_text("1. Confidentiality\nConfidential information must remain protected.")
+    state = ContractReviewState(review_id="review-k2", filename="inline.txt", raw_text=parsed.raw_text, sections=parsed.sections)
+
+    class FakeResponse:
+        content = """
+        <think>I should classify this carefully.</think>
+        {
+          "clauses": [
+            {
+              "text": "Confidential information must remain protected.",
+              "clause_type": "Confidentiality",
+              "section_title": "1. Confidentiality",
+              "section_order": 1,
+              "evidence": ["confidential information"],
+              "classification_confidence": 0.93
+            }
+          ]
+        }
+        """
+
+    class FakeLLM:
+        def invoke(self, messages):
+            assert len(messages) == 2
+            return FakeResponse()
+
+    agent = ClauseExtractionAgent()
+    agent.llm = FakeLLM()
+    agent.extraction_model = "k2"
+
+    result = agent(state)
+
+    assert len(result["clauses"]) == 1
+    assert result["extraction_model"] == "k2"
+    assert result["clauses"][0].clause_type is ClauseType.CONFIDENTIALITY

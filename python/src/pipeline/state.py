@@ -75,6 +75,7 @@ class ContractReviewState(BaseModel):
     raw_text: str
     sections: list[Section] = Field(default_factory=list)
     clauses: list[Clause] = Field(default_factory=list)
+    extraction_model: str | None = None
     risk_findings: list[RiskFinding] = Field(default_factory=list)
     compliance_findings: list[ComplianceFinding] = Field(default_factory=list)
     suggestions: list[Suggestion] = Field(default_factory=list)

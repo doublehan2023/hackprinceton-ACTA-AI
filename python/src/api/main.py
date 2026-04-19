@@ -58,12 +58,14 @@ class RedlinePayload(BaseModel):
 class ClausePayload(BaseModel):
     assessment: AssessmentPayload
     redline: RedlinePayload | None = None
+    model_used: str | None = None
 
 
 class AnalyzeResponse(BaseModel):
     summary: str
     clauses: list[ClausePayload]
     missing_clause_types: list[str] = Field(default_factory=list)
+    extraction_model: str | None = None
 
 
 settings = get_settings()
@@ -190,6 +192,7 @@ def _normalize_response(result: ContractReviewState) -> AnalyzeResponse:
                     if redline is not None and finding.risk_level is not RiskLevel.GREEN
                     else None
                 ),
+                model_used=result.extraction_model,
             )
         )
 
@@ -197,6 +200,7 @@ def _normalize_response(result: ContractReviewState) -> AnalyzeResponse:
         summary=result.summary,
         clauses=clauses,
         missing_clause_types=result.missing_clause_types,
+        extraction_model=result.extraction_model,
     )
 
 
